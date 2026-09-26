@@ -139,6 +139,12 @@ taken — stop the application from starting.
 
 ## Changes
 
+### v0.2.1
+
+- `collage.json`: the plugin described to editors — its template functions,
+  snippets and configuration schema — for the Collage Snippets & Highlighter
+  extension and any tool reading it.
+
 ### v0.2.0
 
 - The `route` label is what the request resolved to, from collage v0.25.0's

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Elagoht/collage-snippets-highlighter/main/schemas/collage-plugin-manifest.schema.json",
+  "name": "elagoht/prometheus",
+  "description": "A collage plugin that exports the framework's metrics to Prometheus, and serves them at /metrics.",
+  "repository": "https://github.com/Elagoht/collage-prometheus",
+  "config": {
+    "type": "object",
+    "description": "A collage plugin that exports the framework's metrics to Prometheus, and serves them at /metrics.",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path is where the metrics are served. Default \"/metrics\"; \"-\" serves them nowhere, for an application that serves its registry itself."
+      },
+      "token": {
+        "type": "string",
+        "description": "Token, when set, is required as \"Authorization: Bearer <token>\" on the metrics path. Without it anyone who can reach the site can read its metrics — page names, error rates, traffic."
+      }
+    }
+  }
+}

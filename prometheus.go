@@ -9,8 +9,7 @@
 //
 // The one value is both halves, and it needs both lines. A plugin cannot set the
 // application's Config, so only the application can hand collage its Metrics; and
-// only a plugin can serve a route and learn the site's pages, which is what keeps
-// the HTTP metric's route label bounded.
+// only a plugin can serve a route, which is where the metrics are scraped from.
 //
 // # Labels
 //
@@ -18,9 +17,9 @@
 // fragment names, cache event kinds, status classes. None comes from a request. A
 // raw path as a label is a new time series for every /blog/whatever a crawler
 // invents, and a Prometheus server holding a million series for one histogram is
-// one that has stopped answering. So the HTTP metric labels a request with the
-// name of the page or document whose pattern its path matches, and "other" when
-// none does.
+// one that has stopped answering. So the HTTP metric labels a request with what
+// collage.RouteOf says it resolved to — "page:post", "document:feed",
+// "mount:/static/" — and "other" when it resolved to nothing.
 package prometheus
 
 import (
@@ -30,11 +29,8 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Elagoht/collage/pkg/collage"
@@ -45,9 +41,9 @@ import (
 // Name is the plugin's name, and the key its configuration is found under.
 const Name = "elagoht/prometheus"
 
-// OtherRoute is the route label of a request whose path matches no page, no
-// document the plugin has learned and no prefix in Options.Routes: a 404, a
-// handler mounted by the application, a static asset.
+// OtherRoute is the route label of a request that resolved to no route: a 404, a
+// redirect to a path's canonical form, a request middleware answered before
+// routing.
 const OtherRoute = "other"
 
 // Options configures the plugin.
@@ -72,10 +68,6 @@ type Options struct {
 	// metrics path. Without it anyone who can reach the site can read its
 	// metrics — page names, error rates, traffic.
 	Token string `json:"token"`
-	// Routes are path prefixes labelled as themselves: "/api/" labels every
-	// request under it "/api/". For what the plugin cannot learn from the
-	// application's pages — a handler of the application's own, a mount.
-	Routes []string `json:"routes"`
 }
 
 // Plugin is the application's collage.Metrics and the plugin that serves them.
@@ -92,14 +84,6 @@ type Plugin struct {
 	http          *prom.HistogramVec
 	invalidations prom.Counter
 	invalidated   prom.Counter
-
-	host   collage.Host
-	routes atomic.Pointer[matcher]
-	// learnMu serialises learning a document's path, and tried remembers every
-	// name already looked up, found or not: the names are registered ones, so
-	// the set is bounded, and each is asked about once.
-	learnMu sync.Mutex
-	tried   sync.Map // name → struct{}
 }
 
 // New returns the plugin, with its metrics registered. See NewMetrics.
@@ -139,7 +123,7 @@ func NewMetrics(opts Options) *Plugin {
 		}, []string{"event"}),
 		http: prom.NewHistogramVec(prom.HistogramOpts{
 			Namespace: ns, Name: "http_request_duration_seconds",
-			Help:    "How long a response took, by route (a page or document name, a configured prefix, or \"other\") and status class.",
+			Help:    "How long a response took, by route (kind:name, as page:post or mount:/static/, or \"other\") and status class.",
 			Buckets: opts.Buckets,
 		}, []string{"route", "status"}),
 		invalidations: prom.NewCounter(prom.CounterOpts{
@@ -156,12 +140,11 @@ func NewMetrics(opts Options) *Plugin {
 			p.regErr = errors.Join(p.regErr, err)
 		}
 	}
-	p.routes.Store(&matcher{})
 	return p
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.1.1" }
+func (p *Plugin) Version() string                { return "0.2.0" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -171,8 +154,7 @@ var (
 
 var tokenChars = regexp.MustCompile(`^[\x21-\x7e]+$`)
 
-// Init reads the configuration, learns the pages' patterns for the route label and
-// serves the metrics.
+// Init reads the configuration and serves the metrics.
 func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if p.regErr != nil {
 		return fmt.Errorf("prometheus: registering the metrics: %w", p.regErr)
@@ -194,26 +176,6 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if p.opts.Token != "" && !tokenChars.MatchString(p.opts.Token) {
 		return errors.New("prometheus: the token must be printable ASCII without spaces, as a header carries it")
 	}
-	for _, prefix := range p.opts.Routes {
-		if !strings.HasPrefix(prefix, "/") {
-			return fmt.Errorf("prometheus: route %q must begin with /", prefix)
-		}
-	}
-	p.host = host
-
-	_, locales := host.Locales()
-	m := &matcher{locales: locales, prefixes: slices.Clone(p.opts.Routes)}
-	for _, page := range host.Pages() {
-		for _, pattern := range page.Paths {
-			m.add(pattern, page.Name)
-		}
-	}
-	if p.opts.Path != "-" {
-		m.exact = p.opts.Path
-	}
-	m.sort()
-	p.routes.Store(m)
-
 	if p.opts.Path == "-" {
 		return nil
 	}
@@ -243,7 +205,6 @@ func (p *Plugin) handler() http.Handler {
 
 // RenderDuration observes a render, or a cache read when cacheHit is true.
 func (p *Plugin) RenderDuration(_ context.Context, page string, d time.Duration, cacheHit bool) {
-	p.learn(page)
 	p.render.WithLabelValues(page, strconv.FormatBool(cacheHit)).Observe(d.Seconds())
 }
 
@@ -262,9 +223,22 @@ func (p *Plugin) CacheEvent(_ context.Context, event collage.CacheEvent, _ strin
 	p.cacheEvents.WithLabelValues(string(event)).Inc()
 }
 
-// HTTPResponse observes a response, labelled by the route its path matched.
-func (p *Plugin) HTTPResponse(_ context.Context, status int, path string, d time.Duration) {
-	p.http.WithLabelValues(p.routes.Load().match(path), statusClass(status)).Observe(d.Seconds())
+// HTTPResponse observes a response, labelled by the route it resolved to. The
+// path is not a label: it is one per URL a crawler invents.
+func (p *Plugin) HTTPResponse(ctx context.Context, status int, _ string, d time.Duration) {
+	p.http.WithLabelValues(route(ctx), statusClass(status)).Observe(d.Seconds())
+}
+
+// route is the route label: the kind and the registered name or prefix collage
+// resolved the request to, as "page:post", "document:feed", "mount:/static/",
+// "handler:/api/". Both come from what the application registered, so the set is
+// as bounded as its routes are.
+func route(ctx context.Context) string {
+	kind, name := collage.RouteOf(ctx)
+	if kind == "" {
+		return OtherRoute
+	}
+	return kind + ":" + name
 }
 
 // Invalidation counts an invalidation and the keys it reached. The tags are not a
@@ -279,36 +253,4 @@ func statusClass(status int) string {
 		return "unknown"
 	}
 	return strconv.Itoa(status/100) + "xx"
-}
-
-// learn adds a document's path to the route label's patterns the first time the
-// document is rendered. Host has no Documents method, so the plugin cannot list
-// them at Init; but RenderDuration names every document that renders, before its
-// response is reported, and Host.URL turns a name into its path. A document whose
-// path has parameters cannot be built without them and stays "other".
-func (p *Plugin) learn(name string) {
-	if p.host == nil {
-		return
-	}
-	if _, seen := p.tried.Load(name); seen {
-		return
-	}
-	p.learnMu.Lock()
-	defer p.learnMu.Unlock()
-	if _, seen := p.tried.LoadOrStore(name, struct{}{}); seen {
-		return
-	}
-	current := p.routes.Load()
-	if current.names[name] {
-		return
-	}
-	def, _ := p.host.Locales()
-	path, err := p.host.URL(name, def, nil)
-	if err != nil {
-		return
-	}
-	next := current.clone()
-	next.add(path, name)
-	next.sort()
-	p.routes.Store(next)
 }

@@ -13,18 +13,17 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.24.0 or later.
+Requires collage v0.25.0 or later.
 
 ## Both lines
 
 The one value is the application's `collage.Metrics` and a plugin, and it needs to
 be handed over as both. A plugin cannot set the application's `Config`, so only the
-application can give collage its `Metrics`; and only a plugin can serve a path and
-read the site's pages, which is what keeps the route label bounded (below).
+application can give collage its `Metrics`; and only a plugin can serve a path.
 
 - Without the `Observability` line, `/metrics` serves nothing collage measured.
-- Without the `Plugins` line, the metrics are recorded but not served, every
-  response's route is `other`, and a registration that failed goes unnoticed.
+- Without the `Plugins` line, the metrics are recorded but not served, and a
+  registration that failed goes unnoticed.
 
 ## The metrics
 
@@ -57,17 +56,23 @@ request. A raw path as a label is a new time series for every `/blog/whatever` a
 crawler invents, and a Prometheus server holding a million series for one histogram
 is one that has stopped answering.
 
-So `route` is the name of the page whose pattern the request's path matched:
-`/blog/a` and `/blog/b` are both `post`. The patterns are read from the application's
-pages when the plugin starts, a leading locale segment is skipped as the router
-skips it, and a document is learned the first time it renders — `robots.txt` is
-labelled `robots`. What matches nothing is `other`: a 404, a mounted asset, a
-handler of the application's own. `Routes` names prefixes to label as themselves
-instead:
+So `route` is what collage resolved the request to, from `collage.RouteOf`: its
+kind and the name or prefix it was registered under.
 
-```go
-prometheus.NewMetrics(prometheus.Options{Routes: []string{"/api/", "/static/"}})
-```
+| Request | `route` |
+| --- | --- |
+| `/blog/a`, `/blog/b`, `/tr/blog/c` | `page:post` |
+| `/robots.txt` | `document:robots` |
+| `/static/site.css` | `mount:/static/` |
+| `/api/users/7` (an `app.Handle("/api/", ...)`) | `handler:/api/` |
+| a form posted to an action | `action:subscribe` |
+| `/metrics` | `handler:/metrics` |
+| a 404, a redirect to a path's canonical form | `other` |
+
+Every value comes from something the application registered, so there are as many
+as it has routes. A page is one route in every locale. A handler is labelled by its
+prefix, however many paths beneath it are asked for — `/api/users/7` and
+`/api/users/8` are one series.
 
 The cache key, the invalidated tags and the full path are never labels for the same
 reason.
@@ -104,7 +109,6 @@ A request without it, or with another, is answered `401`.
 | `Buckets` | `prometheus.DefBuckets` | Histogram bounds, in seconds. Go only |
 | `Path` (`path`) | `"/metrics"` | Where the metrics are served; `"-"` nowhere |
 | `Token` (`token`) | none | Required as `Authorization: Bearer <token>` |
-| `Routes` (`routes`) | none | Path prefixes labelled as themselves |
 
 The default registry is Prometheus's own, so the Go runtime's metrics and anything
 the application registers with `promauto` are served too. `Namespace`, `Registry`
@@ -117,29 +121,36 @@ returns, before any configuration is read.
 {
   "elagoht/prometheus": {
     "path": "/metrics",
-    "token": "s3cret",
-    "routes": ["/api/"]
+    "token": "s3cret"
   }
 }
 ```
 
-A path or route that does not begin with `/`, a path ending in `/`, a token a header cannot carry, and
+A path that does not begin with `/`, a path ending in `/`, a token a header cannot carry, and
 metrics that could not be registered — two plugins on one registry, a name already
 taken — stop the application from starting.
 
 ## Limitations
 
-- A document whose path has parameters cannot be learned — `Host` has no
-  `Documents` method, and `Host.URL` cannot build its path without them — so its
-  responses are `other` unless a `Routes` prefix covers them.
-- `Metrics.HTTPResponse` is given the raw path and the context from before the
-  middleware ran, so the route label is worked out by matching the path again
-  rather than read from the router's own match. Were collage to hand the resolved
-  route to `HTTPResponse`, the matching here would go.
-- Mounts and handlers the application registers are not visible to a plugin and
-  are `other` until named in `Routes`.
+- A handler the application registers is one series, however different the
+  requests beneath its prefix are: `/api/users` and `/api/orders` under
+  `app.Handle("/api/", ...)` are both `handler:/api/`. Labelling finer would take
+  the handler's own routing, which collage does not see.
 
 ## Changes
+
+### v0.2.0
+
+- The `route` label is what the request resolved to, from collage v0.25.0's
+  `collage.RouteOf`, as `kind:name`: `page:post`, `document:robots`,
+  `mount:/static/`, `handler:/api/`. It was the bare page or document name, found
+  by matching the path against the pages' patterns again. Dashboards and alerts
+  that select on `route` need the new values.
+- Documents with parameters, mounts and the application's own handlers are
+  labelled by their route instead of `other`.
+- **`Routes` is removed**: every mount and handler now has its prefix as its route
+  without being named. A `routes` key left in the configuration is ignored.
+- Requires collage v0.25.0.
 
 ### v0.1.1
 

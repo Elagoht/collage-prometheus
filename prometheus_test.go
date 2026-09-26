@@ -53,6 +53,14 @@ func site(t *testing.T, m *prometheus.Plugin, pluginConfig string) *collage.App 
 	if err := app.RegisterDocument(collage.NewDocument("robots", "text/plain").AtRoot("/robots.txt").WithBody([]byte("User-agent: *\n")).Build()); err != nil {
 		t.Fatal(err)
 	}
+	if err := app.Mount("/static/", fstest.MapFS{"site.css": {Data: []byte("p{}")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})); err != nil {
+		t.Fatal(err)
+	}
 	return app
 }
 
@@ -126,25 +134,28 @@ func TestRenderAndCacheMetrics(t *testing.T) {
 	}
 }
 
-// A path is labelled by the page or document whose pattern it matches — never by
-// itself, which would be a new series for every URL a crawler invents.
+// A request is labelled by the route collage resolved it to — never by its path,
+// which would be a new series for every URL a crawler invents.
 func TestRouteLabelsAreBounded(t *testing.T) {
 	reg := prom.NewRegistry()
 	m := prometheus.NewMetrics(prometheus.Options{Registry: reg})
-	h := site(t, m, `{"routes": ["/api/"]}`).Handler()
-	for _, path := range []string{"/", "/blog/a", "/blog/b/", "/docs/a/b/c", "/robots.txt", "/robots.txt", "/nope", "/blog/a/b", "/api/users/7", "/metrics"} {
+	h := site(t, m, "").Handler()
+	for _, path := range []string{"/", "/blog/a", "/blog/b", "/blog/b/", "/docs/a/b/c", "/robots.txt", "/robots.txt",
+		"/nope", "/blog/a/b", "/api/users/7", "/api/users/8", "/static/site.css", "/static/missing.css", "/metrics"} {
 		get(h, path)
 	}
 	got := samples(t, reg, "collage_http_request_duration_seconds")
 	want := map[string]float64{
-		"route=home,status=2xx":     1,
-		"route=post,status=2xx":     1,
-		"route=post,status=3xx":     1, // the trailing slash redirects to the canonical path
-		"route=docs,status=2xx":     1,
-		"route=robots,status=2xx":   2,
-		"route=other,status=4xx":    2,
-		"route=/api/,status=4xx":    1,
-		"route=/metrics,status=2xx": 1,
+		"route=page:home,status=2xx":        1,
+		"route=page:post,status=2xx":        2,
+		"route=other,status=3xx":            1, // the trailing slash redirects before routing
+		"route=page:docs,status=2xx":        1,
+		"route=document:robots,status=2xx":  2,
+		"route=other,status=4xx":            2,
+		"route=handler:/api/,status=2xx":    2,
+		"route=mount:/static/,status=2xx":   1,
+		"route=mount:/static/,status=4xx":   1,
+		"route=handler:/metrics,status=2xx": 1,
 	}
 	for k, v := range want {
 		if got[k] != v {
@@ -221,7 +232,6 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 		// Served with Host.Handle, the path cannot quietly hide a page.
 		"a page's path": {config: `{"path": "/broken"}`},
 		"bad token":     {config: `{"token": "has space"}`},
-		"bad route":     {config: `{"routes": ["api"]}`},
 		"registered twice": {reg: func() *prom.Registry {
 			reg := prom.NewRegistry()
 			prometheus.NewMetrics(prometheus.Options{Registry: reg})
@@ -240,7 +250,8 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 	}
 }
 
-func TestLocalePrefixIsStripped(t *testing.T) {
+// A page is one route in every locale.
+func TestLocalesShareARoute(t *testing.T) {
 	reg := prom.NewRegistry()
 	m := prometheus.NewMetrics(prometheus.Options{Registry: reg})
 	app, err := collage.New(&collage.Config{
@@ -258,7 +269,8 @@ func TestLocalePrefixIsStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	get(app.Handler(), "/tr/hakkinda")
-	if got := samples(t, reg, "collage_http_request_duration_seconds")["route=about,status=2xx"]; got != 1 {
+	get(app.Handler(), "/about")
+	if got := samples(t, reg, "collage_http_request_duration_seconds")["route=page:about,status=2xx"]; got != 2 {
 		t.Errorf("series = %v", samples(t, reg, "collage_http_request_duration_seconds"))
 	}
 }

@@ -13,7 +13,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.23.0 or later.
+Requires collage v0.24.0 or later.
 
 ## Both lines
 
@@ -76,9 +76,10 @@ reason.
 
 `/metrics` answers with the registry in Prometheus's text format and
 `Cache-Control: no-store`. `Path` moves it, and `"-"` serves it nowhere — for an
-application that serves its registry itself, on another port. It is answered from
-middleware, after the application's own: `Host.Handle` serves prefixes ending in
-`/`, and Prometheus scrapes `/metrics` without one by default.
+application that serves its registry itself, on another port. It is served with
+`Host.Handle` as one exact path, inside the application's middleware; a page,
+document or handler already at that path stops the application from starting
+rather than one of them hiding the other.
 
 Anyone who can reach the site can read its page names, error rates and traffic
 unless `Token` is set. The scrape then has to send it:
@@ -122,7 +123,7 @@ returns, before any configuration is read.
 }
 ```
 
-A path or route that does not begin with `/`, a token a header cannot carry, and
+A path or route that does not begin with `/`, a path ending in `/`, a token a header cannot carry, and
 metrics that could not be registered — two plugins on one registry, a name already
 taken — stop the application from starting.
 
@@ -137,3 +138,12 @@ taken — stop the application from starting.
   route to `HTTPResponse`, the matching here would go.
 - Mounts and handlers the application registers are not visible to a plugin and
   are `other` until named in `Routes`.
+
+## Changes
+
+### v0.1.1
+
+- `/metrics` is served with `Host.Handle`, which takes an exact path since collage
+  v0.24.0, instead of middleware. A `Path` another route already answers, or one
+  ending in `/`, now stops the application from starting.
+- Requires collage v0.24.0.

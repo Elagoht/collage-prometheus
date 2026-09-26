@@ -217,6 +217,9 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 		reg    func() *prom.Registry
 	}{
 		"relative path": {config: `{"path": "metrics"}`},
+		"prefix path":   {config: `{"path": "/metrics/"}`},
+		// Served with Host.Handle, the path cannot quietly hide a page.
+		"a page's path": {config: `{"path": "/broken"}`},
 		"bad token":     {config: `{"token": "has space"}`},
 		"bad route":     {config: `{"routes": ["api"]}`},
 		"registered twice": {reg: func() *prom.Registry {

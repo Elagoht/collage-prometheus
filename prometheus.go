@@ -161,7 +161,7 @@ func NewMetrics(opts Options) *Plugin {
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.1.0" }
+func (p *Plugin) Version() string                { return "0.1.1" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -185,6 +185,11 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	}
 	if p.opts.Path != "-" && !strings.HasPrefix(p.opts.Path, "/") {
 		return fmt.Errorf("prometheus: path %q must begin with /", p.opts.Path)
+	}
+	// Host.Handle reads a trailing "/" as a prefix claiming everything beneath
+	// it; the metrics are one path.
+	if p.opts.Path != "-" && strings.HasSuffix(p.opts.Path, "/") {
+		return fmt.Errorf("prometheus: path %q must not end in /: the metrics are one path, not a prefix", p.opts.Path)
 	}
 	if p.opts.Token != "" && !tokenChars.MatchString(p.opts.Token) {
 		return errors.New("prometheus: the token must be printable ASCII without spaces, as a header carries it")
@@ -212,20 +217,19 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if p.opts.Path == "-" {
 		return nil
 	}
-	return host.Use(p.middleware)
+	if err := host.Handle(p.opts.Path, p.handler()); err != nil {
+		return fmt.Errorf("prometheus: %w", err)
+	}
+	return nil
 }
 
-// middleware answers the metrics path and passes everything else on. It is
-// middleware rather than Host.Handle because Handle serves a prefix ending in
-// "/", and Prometheus scrapes /metrics, without one, unless told otherwise.
-func (p *Plugin) middleware(next http.Handler) http.Handler {
+// handler answers the metrics path. Host.Handle serves it as an exact path, so a
+// page or handler of the application's own at the same path is a startup error
+// rather than one of the two silently hiding the other.
+func (p *Plugin) handler() http.Handler {
 	metrics := promhttp.HandlerFor(p.gatherer, promhttp.HandlerOpts{})
 	want := []byte("Bearer " + p.opts.Token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != p.opts.Path {
-			next.ServeHTTP(w, r)
-			return
-		}
 		if p.opts.Token != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

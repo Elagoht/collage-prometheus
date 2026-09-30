@@ -13,8 +13,9 @@
       },
       "token": {
         "type": "string",
-        "description": "Token, when set, is required as \"Authorization: Bearer <token>\" on the metrics path. Without it anyone who can reach the site can read its metrics — page names, error rates, traffic."
+        "description": "Token, when set, is required as \"Authorization: Bearer \u003ctoken\u003e\" on the metrics path. Without it anyone who can reach the site can read its metrics — page names, error rates, traffic."
       }
-    }
+    },
+    "additionalProperties": false
   }
 }

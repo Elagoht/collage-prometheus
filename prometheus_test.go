@@ -40,10 +40,10 @@ func site(t *testing.T, m *prometheus.Plugin, pluginConfig string) *collage.App 
 		collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Static().WithDependency("home").Build(),
 		collage.NewPage("post").WithContent(collage.NewFragment("post", "p.html").Build()).WithPath("en", "/blog/{slug}").Static().Build(),
 		collage.NewPage("docs").WithContent(collage.NewFragment("docs", "p.html").Build()).WithPath("en", "/docs/{rest...}").Static().Build(),
-		collage.NewPage("broken").WithContent(collage.NewFragment("broken", "fail.html").WithDataHandler(
-			func(context.Context, *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own signature
-				return nil, nil, errors.New("backend down")
-			}).Build()).WithPath("en", "/broken").Build(),
+		collage.NewPage("broken").WithContent(collage.NewFragment("broken", "fail.html").WithData(collage.Load(
+			func(context.Context, *collage.RenderContext) (string, error) {
+				return "", errors.New("backend down")
+			})).Build()).WithPath("en", "/broken").Build(),
 	}
 	for _, p := range pages {
 		if err := app.RegisterPage(p); err != nil {

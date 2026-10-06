@@ -139,6 +139,12 @@ taken — stop the application from starting.
 
 ## Changes
 
+### v0.2.3
+
+- Requires collage v0.49.0. Tests only: the test site gives its fragments
+  typed data with `collage.Load` and `collage.DataHandler`, since
+  `WithDataHandler` is gone. The plugin itself is unchanged.
+
 ### v0.2.1
 
 - `collage.json`: the plugin described to editors — its template functions,

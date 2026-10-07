@@ -144,7 +144,7 @@ func NewMetrics(opts Options) *Plugin {
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.3" }
+func (p *Plugin) Version() string                { return "0.2.4" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -159,9 +159,11 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if p.regErr != nil {
 		return fmt.Errorf("prometheus: registering the metrics: %w", p.regErr)
 	}
-	if err := host.Config(&p.opts); err != nil {
+	cfg, err := collage.PluginConfig(host, p.opts)
+	if err != nil {
 		return err
 	}
+	p.opts = cfg
 	if p.opts.Path == "" {
 		p.opts.Path = "/metrics"
 	}

@@ -6,7 +6,7 @@ module github.com/Elagoht/collage-prometheus
 go 1.26
 
 require (
-	github.com/Elagoht/collage v0.50.0
+	github.com/Elagoht/collage v0.52.0
 	github.com/prometheus/client_model v0.6.2
 )
 

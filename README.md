@@ -13,7 +13,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.50.0 or later.
+Requires collage v0.52.0 or later.
 
 ## Both lines
 
@@ -138,6 +138,10 @@ taken — stop the application from starting.
   the handler's own routing, which collage does not see.
 
 ## Changes
+
+### v0.2.7
+
+- Requires collage v0.52.0. A static build's header capture (`collage.IsCapture`) is not counted: its responses, renders, fragments and cache events are left out of every metric, so `collage build` no longer records a request histogram for every file it asks for.
 
 ### v0.2.6
 

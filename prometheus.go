@@ -71,6 +71,8 @@ type Options struct {
 }
 
 // Plugin is the application's collage.Metrics and the plugin that serves them.
+// What a static build asks its own handler for, to capture its files' headers
+// (collage.IsCapture), is not traffic, and none of the metrics records it.
 type Plugin struct {
 	opts     Options
 	gatherer prom.Gatherer
@@ -144,7 +146,7 @@ func NewMetrics(opts Options) *Plugin {
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.6" }
+func (p *Plugin) Version() string                { return "0.2.7" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -206,12 +208,18 @@ func (p *Plugin) handler() http.Handler {
 }
 
 // RenderDuration observes a render, or a cache read when cacheHit is true.
-func (p *Plugin) RenderDuration(_ context.Context, page string, d time.Duration, cacheHit bool) {
+func (p *Plugin) RenderDuration(ctx context.Context, page string, d time.Duration, cacheHit bool) {
+	if collage.IsCapture(ctx) {
+		return
+	}
 	p.render.WithLabelValues(page, strconv.FormatBool(cacheHit)).Observe(d.Seconds())
 }
 
 // FragmentDuration observes a fragment's data fetch.
-func (p *Plugin) FragmentDuration(_ context.Context, page, fragment string, d time.Duration, err error) {
+func (p *Plugin) FragmentDuration(ctx context.Context, page, fragment string, d time.Duration, err error) {
+	if collage.IsCapture(ctx) {
+		return
+	}
 	outcome := "ok"
 	if err != nil {
 		outcome = "error"
@@ -221,13 +229,19 @@ func (p *Plugin) FragmentDuration(_ context.Context, page, fragment string, d ti
 
 // CacheEvent counts a cache operation. The key is not a label: it is one per
 // cached URL.
-func (p *Plugin) CacheEvent(_ context.Context, event collage.CacheEvent, _ string) {
+func (p *Plugin) CacheEvent(ctx context.Context, event collage.CacheEvent, _ string) {
+	if collage.IsCapture(ctx) {
+		return
+	}
 	p.cacheEvents.WithLabelValues(string(event)).Inc()
 }
 
 // HTTPResponse observes a response, labelled by the route it resolved to. The
 // path is not a label: it is one per URL a crawler invents.
 func (p *Plugin) HTTPResponse(ctx context.Context, status int, _ string, d time.Duration) {
+	if collage.IsCapture(ctx) {
+		return
+	}
 	p.http.WithLabelValues(route(ctx), statusClass(status)).Observe(d.Seconds())
 }
 
@@ -245,7 +259,10 @@ func route(ctx context.Context) string {
 
 // Invalidation counts an invalidation and the keys it reached. The tags are not a
 // label: an application may tag by record ID.
-func (p *Plugin) Invalidation(_ context.Context, _ []string, keys int) {
+func (p *Plugin) Invalidation(ctx context.Context, _ []string, keys int) {
+	if collage.IsCapture(ctx) {
+		return
+	}
 	p.invalidations.Inc()
 	p.invalidated.Add(float64(keys))
 }

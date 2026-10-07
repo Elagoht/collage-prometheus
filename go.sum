@@ -1,5 +1,5 @@
-github.com/Elagoht/collage v0.50.0 h1:5fcYkcr/8ZmyvLf7RN2HHC4vCH4YgXb7HVdDChOhiSc=
-github.com/Elagoht/collage v0.50.0/go.mod h1:tyGWGpujZXtCFFxn9pjws85HOFOt4QdiuRswwQhj1Qw=
+github.com/Elagoht/collage v0.52.0 h1:gPX01+sR30YjSZUaQmFpqYjleUieaCV89zLqScHT2D8=
+github.com/Elagoht/collage v0.52.0/go.mod h1:tyGWGpujZXtCFFxn9pjws85HOFOt4QdiuRswwQhj1Qw=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

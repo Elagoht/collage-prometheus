@@ -139,6 +139,10 @@ taken — stop the application from starting.
 
 ## Changes
 
+### v0.2.6
+
+- Retracts v0.2.4, tagged by mistake on the previous release's code. Use v0.2.5 or later. Nothing else changes.
+
 ### v0.2.5
 
 - Requires collage v0.50.0. Plugin configuration is read with `collage.PluginConfig`, since `host.Config` is gone. Nothing else changes.

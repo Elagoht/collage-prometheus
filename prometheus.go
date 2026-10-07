@@ -144,7 +144,7 @@ func NewMetrics(opts Options) *Plugin {
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.4" }
+func (p *Plugin) Version() string                { return "0.2.5" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (

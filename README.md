@@ -139,11 +139,11 @@ taken — stop the application from starting.
 
 ## Changes
 
-### v0.2.4
+### v0.2.5
 
 - Requires collage v0.50.0. Plugin configuration is read with `collage.PluginConfig`, since `host.Config` is gone. Nothing else changes.
 
-### v0.2.4
+### v0.2.5
 
 - Requires collage v0.49.0. Tests only: the test site gives its fragments
   typed data with `collage.Load` and `collage.DataHandler`, since

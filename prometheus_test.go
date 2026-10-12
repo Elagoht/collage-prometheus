@@ -2,7 +2,6 @@ package prometheus_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -18,51 +17,48 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-func site(t *testing.T, m *prometheus.Plugin, pluginConfig string) *collage.App {
-	t.Helper()
-	cfg := &collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/p.html":    {Data: []byte(`<p>page</p>`)},
-			"t/fail.html": {Data: []byte(`<p>fails</p>`)},
-		}, Root: "t"},
-		Cache:         collage.CacheConfig{Enabled: true, Type: "memory", DefaultTTL: time.Hour},
-		Observability: collage.ObservabilityConfig{Metrics: m},
-		Plugins:       []collage.Plugin{m},
+// siteOptions is the site the tests run the plugin in; site starts it, and the
+// misconfiguration test tries to.
+func siteOptions(m *prometheus.Plugin, pluginConfig string) []collagetest.SiteOption {
+	options := []collagetest.SiteOption{
+		collagetest.WithoutHome(),
+		collagetest.WithTemplates(map[string]string{
+			"p.html":    `<p>page</p>`,
+			"fail.html": `<p>fails</p>`,
+		}),
+		collagetest.WithConfig(func(cfg *collage.Config) {
+			cfg.Cache = collage.CacheConfig{Enabled: true, Type: "memory", DefaultTTL: time.Hour}
+			cfg.Observability = collage.ObservabilityConfig{Metrics: m}
+		}),
+		collagetest.WithPlugins(m),
+		collagetest.WithRegister(
+			collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Static().WithDependencyTags("home").Build(),
+			collage.NewPage("post").WithContent(collage.NewFragment("post", "p.html").Build()).WithPath("en", "/blog/{slug}").Static().Build(),
+			collage.NewPage("docs").WithContent(collage.NewFragment("docs", "p.html").Build()).WithPath("en", "/docs/{rest...}").Static().Build(),
+			collage.NewPage("broken").WithContent(collage.NewFragment("broken", "fail.html").WithData(collage.Load(
+				func(context.Context, *collage.RenderContext) (string, error) {
+					return "", errors.New("backend down")
+				})).Build()).WithPath("en", "/broken").Build(),
+			collage.NewDocument("robots", "text/plain").AtRoot("/robots.txt").WithBody([]byte("User-agent: *\n")).Build(),
+		),
+		collagetest.WithSetup(func(app *collage.App) error {
+			if err := app.Mount("/static/", fstest.MapFS{"site.css": {Data: []byte("p{}")}}); err != nil {
+				return err
+			}
+			return app.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+		}),
 	}
 	if pluginConfig != "" {
-		cfg.PluginConfig = map[string]json.RawMessage{prometheus.Name: json.RawMessage(pluginConfig)}
+		options = append(options, collagetest.WithPluginConfig(prometheus.Name, pluginConfig))
 	}
-	app, err := collage.New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pages := []*collage.Page{
-		collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Static().WithDependencyTags("home").Build(),
-		collage.NewPage("post").WithContent(collage.NewFragment("post", "p.html").Build()).WithPath("en", "/blog/{slug}").Static().Build(),
-		collage.NewPage("docs").WithContent(collage.NewFragment("docs", "p.html").Build()).WithPath("en", "/docs/{rest...}").Static().Build(),
-		collage.NewPage("broken").WithContent(collage.NewFragment("broken", "fail.html").WithData(collage.Load(
-			func(context.Context, *collage.RenderContext) (string, error) {
-				return "", errors.New("backend down")
-			})).Build()).WithPath("en", "/broken").Build(),
-	}
-	for _, p := range pages {
-		if err := app.RegisterPage(p); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := app.RegisterDocument(collage.NewDocument("robots", "text/plain").AtRoot("/robots.txt").WithBody([]byte("User-agent: *\n")).Build()); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.Mount("/static/", fstest.MapFS{"site.css": {Data: []byte("p{}")}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})); err != nil {
-		t.Fatal(err)
-	}
-	return app
+	return options
+}
+
+func site(t *testing.T, m *prometheus.Plugin, pluginConfig string) *collage.App {
+	t.Helper()
+	return collagetest.NewSite(t, siteOptions(m, pluginConfig)...).App
 }
 
 func get(h http.Handler, path string, header ...string) *httptest.ResponseRecorder {
@@ -244,8 +240,10 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 			if tc.reg != nil {
 				reg = tc.reg()
 			}
-			if got := get(site(t, prometheus.New(prometheus.Options{Registry: reg}), tc.config).Handler(), "/").Code; got != http.StatusServiceUnavailable {
-				t.Errorf("status = %d, want 503", got)
+			// TrySite returns the failure Start gave, where a hand-built
+			// application served 503 for it: the same refusal to start.
+			if _, err := collagetest.TrySite(t, siteOptions(prometheus.New(prometheus.Options{Registry: reg}), tc.config)...); err == nil {
+				t.Error("the application started, want it stopped")
 			}
 		})
 	}

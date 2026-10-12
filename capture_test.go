@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	prometheus "github.com/Elagoht/collage-prometheus"
 	"github.com/Elagoht/collage/pkg/collage"
+	"github.com/Elagoht/collage/pkg/collagetest"
 	prom "github.com/prometheus/client_golang/prometheus"
 )
 
@@ -41,25 +41,21 @@ func buildCounts(t *testing.T, reader *buildReader) map[string]float64 {
 	if reader != nil {
 		plugins = append(plugins, reader)
 	}
-	app, err := collage.New(&collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/p.html": {Data: []byte(`<main>home</main>`)},
-		}, Root: "t"},
-		Cache:         collage.CacheConfig{Enabled: true, Type: "memory", DefaultTTL: time.Hour},
-		Observability: collage.ObservabilityConfig{Metrics: m},
-		Plugins:       plugins,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	var pages []collage.Registrable
 	for _, path := range []string{"/", "/a", "/b"} {
-		page := collage.NewPage("p"+path).WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", path).Build()
-		if err := app.RegisterPage(page); err != nil {
-			t.Fatal(err)
-		}
+		pages = append(pages, collage.NewPage("p"+path).WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", path).Build())
 	}
-	report, err := collage.Build(context.Background(), app, collage.BuildOptions{OutDir: t.TempDir()})
+	site := collagetest.NewSite(t,
+		collagetest.WithoutHome(),
+		collagetest.WithTemplates(map[string]string{"p.html": `<main>home</main>`}),
+		collagetest.WithConfig(func(cfg *collage.Config) {
+			cfg.Cache = collage.CacheConfig{Enabled: true, Type: "memory", DefaultTTL: time.Hour}
+			cfg.Observability = collage.ObservabilityConfig{Metrics: m}
+		}),
+		collagetest.WithPlugins(plugins...),
+		collagetest.WithRegister(pages...),
+	)
+	report, err := collage.Build(context.Background(), site.App, collage.BuildOptions{OutDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

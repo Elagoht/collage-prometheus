@@ -225,7 +225,6 @@ func TestPathDashServesNothing(t *testing.T) {
 // A misconfigured plugin, or metrics that could not be registered, stop the
 // application from starting.
 func TestMisconfigurationStopsStartup(t *testing.T) {
-	t.Setenv("PROMETHEUS_TEST_BAD_TOKEN", "has space")
 	for name, tc := range map[string]struct {
 		config string
 		reg    func() *prom.Registry
@@ -233,9 +232,7 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 		"relative path": {config: `{"path": "metrics"}`},
 		"prefix path":   {config: `{"path": "/metrics/"}`},
 		// Served with Host.Handle, the path cannot quietly hide a page.
-		"a page's path":  {config: `{"path": "/broken"}`},
-		"bad token":      {config: `{"tokenEnv": "PROMETHEUS_TEST_BAD_TOKEN"}`},
-		"empty tokenEnv": {config: `{"tokenEnv": "PROMETHEUS_TEST_UNSET"}`},
+		"a page's path": {config: `{"path": "/broken"}`},
 		"registered twice": {reg: func() *prom.Registry {
 			reg := prom.NewRegistry()
 			prometheus.New(prometheus.Options{Registry: reg})
@@ -251,6 +248,24 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 				t.Errorf("status = %d, want 503", got)
 			}
 		})
+	}
+}
+
+// A token from tokenEnv that a header cannot carry, and a tokenEnv naming an
+// empty variable, stop Init with an error that says which.
+func TestTokenEnvErrors(t *testing.T) {
+	t.Setenv("PROMETHEUS_TEST_BAD_TOKEN", "has space")
+	for config, want := range map[string]string{
+		`{"tokenEnv": "PROMETHEUS_TEST_BAD_TOKEN"}`: "prometheus: the token must be printable ASCII without spaces",
+		`{"tokenEnv": "PROMETHEUS_TEST_UNSET"}`:     "prometheus: the environment variable PROMETHEUS_TEST_UNSET is empty",
+	} {
+		_, err := collagetest.TrySite(t,
+			collagetest.WithPlugins(prometheus.New(prometheus.Options{Registry: prom.NewRegistry()})),
+			collagetest.WithPluginConfig(prometheus.Name, config),
+		)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", config, err, want)
+		}
 	}
 }
 

@@ -36,7 +36,7 @@ func (b *buildReader) OnBuildFinished(_ context.Context, ev *collage.BuildFinish
 func buildCounts(t *testing.T, reader *buildReader) map[string]float64 {
 	t.Helper()
 	reg := prom.NewRegistry()
-	m := prometheus.NewMetrics(prometheus.Options{Registry: reg})
+	m := prometheus.New(prometheus.Options{Registry: reg})
 	plugins := []collage.Plugin{m}
 	if reader != nil {
 		plugins = append(plugins, reader)

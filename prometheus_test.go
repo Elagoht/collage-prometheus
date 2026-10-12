@@ -13,6 +13,7 @@ import (
 
 	prometheus "github.com/Elagoht/collage-prometheus"
 	"github.com/Elagoht/collage/pkg/collage"
+	"github.com/Elagoht/collage/pkg/collagetest"
 	prom "github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
@@ -114,7 +115,7 @@ func value(m *dto.Metric) float64 {
 
 func TestRenderAndCacheMetrics(t *testing.T) {
 	reg := prom.NewRegistry()
-	m := prometheus.NewMetrics(prometheus.Options{Registry: reg})
+	m := prometheus.New(prometheus.Options{Registry: reg})
 	h := site(t, m, "").Handler()
 	get(h, "/")
 	get(h, "/")
@@ -138,7 +139,7 @@ func TestRenderAndCacheMetrics(t *testing.T) {
 // which would be a new series for every URL a crawler invents.
 func TestRouteLabelsAreBounded(t *testing.T) {
 	reg := prom.NewRegistry()
-	m := prometheus.NewMetrics(prometheus.Options{Registry: reg})
+	m := prometheus.New(prometheus.Options{Registry: reg})
 	h := site(t, m, "").Handler()
 	for _, path := range []string{"/", "/blog/a", "/blog/b", "/blog/b/", "/docs/a/b/c", "/robots.txt", "/robots.txt",
 		"/nope", "/blog/a/b", "/api/users/7", "/api/users/8", "/static/site.css", "/static/missing.css", "/metrics"} {
@@ -169,7 +170,7 @@ func TestRouteLabelsAreBounded(t *testing.T) {
 
 func TestInvalidations(t *testing.T) {
 	reg := prom.NewRegistry()
-	m := prometheus.NewMetrics(prometheus.Options{Registry: reg, Namespace: "site"})
+	m := prometheus.New(prometheus.Options{Registry: reg, Namespace: "site"})
 	app := site(t, m, "")
 	get(app.Handler(), "/")
 	if err := app.InvalidateTags(context.Background(), "home"); err != nil {
@@ -185,7 +186,7 @@ func TestInvalidations(t *testing.T) {
 
 func TestMetricsEndpoint(t *testing.T) {
 	reg := prom.NewRegistry()
-	h := site(t, prometheus.NewMetrics(prometheus.Options{Registry: reg}), "").Handler()
+	h := site(t, prometheus.New(prometheus.Options{Registry: reg}), "").Handler()
 	get(h, "/")
 	rec := get(h, "/metrics")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `collage_render_duration_seconds_count{cache_hit="false",page="home"} 1`) {
@@ -197,8 +198,9 @@ func TestMetricsEndpoint(t *testing.T) {
 }
 
 func TestTokenAndPath(t *testing.T) {
+	t.Setenv("PROMETHEUS_TEST_TOKEN", "s3cret")
 	reg := prom.NewRegistry()
-	h := site(t, prometheus.NewMetrics(prometheus.Options{Registry: reg}), `{"path": "/_metrics", "token": "s3cret"}`).Handler()
+	h := site(t, prometheus.New(prometheus.Options{Registry: reg}), `{"path": "/_metrics", "tokenEnv": "PROMETHEUS_TEST_TOKEN"}`).Handler()
 	if rec := get(h, "/_metrics"); rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") == "" {
 		t.Errorf("without a token: %d %v", rec.Code, rec.Header())
 	}
@@ -214,7 +216,7 @@ func TestTokenAndPath(t *testing.T) {
 }
 
 func TestPathDashServesNothing(t *testing.T) {
-	h := site(t, prometheus.NewMetrics(prometheus.Options{Registry: prom.NewRegistry()}), `{"path": "-"}`).Handler()
+	h := site(t, prometheus.New(prometheus.Options{Registry: prom.NewRegistry()}), `{"path": "-"}`).Handler()
 	if got := get(h, "/metrics").Code; got != http.StatusNotFound {
 		t.Errorf("/metrics = %d", got)
 	}
@@ -223,6 +225,7 @@ func TestPathDashServesNothing(t *testing.T) {
 // A misconfigured plugin, or metrics that could not be registered, stop the
 // application from starting.
 func TestMisconfigurationStopsStartup(t *testing.T) {
+	t.Setenv("PROMETHEUS_TEST_BAD_TOKEN", "has space")
 	for name, tc := range map[string]struct {
 		config string
 		reg    func() *prom.Registry
@@ -230,11 +233,12 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 		"relative path": {config: `{"path": "metrics"}`},
 		"prefix path":   {config: `{"path": "/metrics/"}`},
 		// Served with Host.Handle, the path cannot quietly hide a page.
-		"a page's path": {config: `{"path": "/broken"}`},
-		"bad token":     {config: `{"token": "has space"}`},
+		"a page's path":  {config: `{"path": "/broken"}`},
+		"bad token":      {config: `{"tokenEnv": "PROMETHEUS_TEST_BAD_TOKEN"}`},
+		"empty tokenEnv": {config: `{"tokenEnv": "PROMETHEUS_TEST_UNSET"}`},
 		"registered twice": {reg: func() *prom.Registry {
 			reg := prom.NewRegistry()
-			prometheus.NewMetrics(prometheus.Options{Registry: reg})
+			prometheus.New(prometheus.Options{Registry: reg})
 			return reg
 		}},
 	} {
@@ -243,7 +247,7 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 			if tc.reg != nil {
 				reg = tc.reg()
 			}
-			if got := get(site(t, prometheus.NewMetrics(prometheus.Options{Registry: reg}), tc.config).Handler(), "/").Code; got != http.StatusServiceUnavailable {
+			if got := get(site(t, prometheus.New(prometheus.Options{Registry: reg}), tc.config).Handler(), "/").Code; got != http.StatusServiceUnavailable {
 				t.Errorf("status = %d, want 503", got)
 			}
 		})
@@ -253,7 +257,7 @@ func TestMisconfigurationStopsStartup(t *testing.T) {
 // A page is one route in every locale.
 func TestLocalesShareARoute(t *testing.T) {
 	reg := prom.NewRegistry()
-	m := prometheus.NewMetrics(prometheus.Options{Registry: reg})
+	m := prometheus.New(prometheus.Options{Registry: reg})
 	app, err := collage.New(&collage.Config{
 		Server:        collage.ServerConfig{Host: "localhost", Port: 3000},
 		Template:      collage.TemplateConfig{FS: fstest.MapFS{"t/p.html": {Data: []byte(`<p>x</p>`)}}, Root: "t"},
@@ -272,5 +276,28 @@ func TestLocalesShareARoute(t *testing.T) {
 	get(app.Handler(), "/about")
 	if got := samples(t, reg, "collage_http_request_duration_seconds")["route=page:about,status=2xx"]; got != 2 {
 		t.Errorf("series = %v", samples(t, reg, "collage_http_request_duration_seconds"))
+	}
+}
+
+// The token is a secret: "token" in plugins-config.json now stops the app;
+// tokenEnv names the variable holding it, and a Go-set Token still works.
+func TestTokenKeys(t *testing.T) {
+	_, err := collagetest.TrySite(t,
+		collagetest.WithPlugins(prometheus.New(prometheus.Options{Registry: prom.NewRegistry()})),
+		collagetest.WithPluginConfig(prometheus.Name, `{"token":"s3cret"}`),
+	)
+	if err == nil || !strings.Contains(err.Error(), `unknown key "token"`) {
+		t.Errorf("err = %v, want unknown key \"token\"", err)
+	}
+	site := collagetest.NewSite(t,
+		collagetest.WithPlugins(prometheus.New(prometheus.Options{Registry: prom.NewRegistry(), Token: "go-token"})),
+	)
+	if got := site.Get("/metrics").Status; got != http.StatusUnauthorized {
+		t.Errorf("Go-set Token, no header: %d, want 401", got)
+	}
+	req := site.Request(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer go-token")
+	if got := site.Do(req).Status; got != http.StatusOK {
+		t.Errorf("Go-set Token, right header: %d, want 200", got)
 	}
 }

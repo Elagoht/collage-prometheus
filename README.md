@@ -5,7 +5,7 @@ fragment timings, cache events, HTTP responses by route, invalidations — and s
 them at `/metrics`.
 
 ```go
-m := prometheus.NewMetrics(prometheus.Options{Namespace: "collage"})
+m := prometheus.New(prometheus.Options{Namespace: "collage"})
 
 app, err := collage.New(&collage.Config{
 	Observability: collage.ObservabilityConfig{Metrics: m},
@@ -13,7 +13,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.60.0 or later.
+Requires collage v0.61.0 or later.
 
 ## Both lines
 
@@ -87,7 +87,10 @@ document or handler already at that path stops the application from starting
 rather than one of them hiding the other.
 
 Anyone who can reach the site can read its page names, error rates and traffic
-unless `Token` is set. The scrape then has to send it:
+unless a token is set. It is a secret, so it never goes into `plugins-config.json`:
+put it in an environment variable and name that variable in `tokenEnv`
+(`"tokenEnv": "METRICS_TOKEN"`), or set `Token` from Go. A `tokenEnv` naming an
+empty variable stops the application from starting. The scrape then has to send it:
 
 ```yaml
 scrape_configs:
@@ -108,11 +111,12 @@ A request without it, or with another, is answered `401`.
 | `Registry` | Prometheus's default registry | Where the metrics are registered and what `/metrics` serves. Go only |
 | `Buckets` | `prometheus.DefBuckets` | Histogram bounds, in seconds. Go only |
 | `Path` (`path`) | `"/metrics"` | Where the metrics are served; `"-"` nowhere |
-| `Token` (`token`) | none | Required as `Authorization: Bearer <token>` |
+| `TokenEnv` (`tokenEnv`) | none | The environment variable holding the token; used over `Token` when set |
+| `Token` | none | Required as `Authorization: Bearer <token>`. Go only |
 
 The default registry is Prometheus's own, so the Go runtime's metrics and anything
 the application registers with `promauto` are served too. `Namespace`, `Registry`
-and `Buckets` are Go-only because the metrics are registered when `NewMetrics`
+and `Buckets` are Go-only because the metrics are registered when `New`
 returns, before any configuration is read.
 
 ## Configuration
@@ -121,7 +125,7 @@ returns, before any configuration is read.
 {
   "elagoht/prometheus": {
     "path": "/metrics",
-    "token": "s3cret"
+    "tokenEnv": "METRICS_TOKEN"
   }
 }
 ```
@@ -138,6 +142,16 @@ taken — stop the application from starting.
   the handler's own routing, which collage does not see.
 
 ## Changes
+
+### Changed in v0.3.0
+
+| Was | Now |
+| --- | --- |
+| `prometheus.NewMetrics(opts)` | `prometheus.New(opts)` |
+| `"token"` in `plugins-config.json` | `"tokenEnv"`, naming the environment variable that holds the token; `Options.Token` stays, Go only |
+
+A `"token"` key now stops the app with `unknown key "token"`. Requires collage
+v0.61.0.
 
 ### v0.2.8
 

@@ -1,7 +1,7 @@
 // Package prometheus is a collage plugin that exports the framework's metrics to
 // Prometheus, and serves them at /metrics.
 //
-//	m := prometheus.NewMetrics(prometheus.Options{Namespace: "collage"})
+//	m := prometheus.New(prometheus.Options{Namespace: "collage"})
 //	app, err := collage.New(&collage.Config{
 //		Observability: collage.ObservabilityConfig{Metrics: m},
 //		Plugins:       []collage.Plugin{m},
@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -50,7 +51,7 @@ const OtherRoute = "other"
 type Options struct {
 	// Namespace prefixes every metric name: "collage" gives
 	// collage_render_duration_seconds. Default "collage". It can only be set
-	// from Go: the metrics are registered when NewMetrics returns, before any
+	// from Go: the metrics are registered when New returns, before any
 	// configuration is read.
 	Namespace string `json:"-"`
 	// Registry is where the metrics are registered and what /metrics serves.
@@ -64,10 +65,14 @@ type Options struct {
 	// Path is where the metrics are served. Default "/metrics"; "-" serves
 	// them nowhere, for an application that serves its registry itself.
 	Path string `json:"path"`
+	// TokenEnv names the environment variable holding the bearer token. When
+	// set, the variable must hold one, and it is used instead of Token.
+	TokenEnv string `json:"tokenEnv"`
 	// Token, when set, is required as "Authorization: Bearer <token>" on the
 	// metrics path. Without it anyone who can reach the site can read its
-	// metrics — page names, error rates, traffic.
-	Token string `json:"token"`
+	// metrics — page names, error rates, traffic. It is a secret, so it is set
+	// from Go or read from TokenEnv, never from plugins-config.json.
+	Token string `json:"-"`
 }
 
 // Plugin is the application's collage.Metrics and the plugin that serves them.
@@ -76,7 +81,7 @@ type Options struct {
 type Plugin struct {
 	opts     Options
 	gatherer prom.Gatherer
-	// regErr is a registration that failed in NewMetrics, which cannot return
+	// regErr is a registration that failed in New, which cannot return
 	// it; Init does, so the application does not start without its metrics.
 	regErr error
 
@@ -88,12 +93,9 @@ type Plugin struct {
 	invalidated   prom.Counter
 }
 
-// New returns the plugin, with its metrics registered. See NewMetrics.
-func New(opts Options) *Plugin { return NewMetrics(opts) }
-
-// NewMetrics returns the plugin with its metrics registered: hand the same value
-// to Config.Observability.Metrics and to Config.Plugins.
-func NewMetrics(opts Options) *Plugin {
+// New returns the plugin with its metrics registered: hand the same value to
+// Config.Observability.Metrics and to Config.Plugins.
+func New(opts Options) *Plugin {
 	if opts.Namespace == "" {
 		opts.Namespace = "collage"
 	}
@@ -146,7 +148,7 @@ func NewMetrics(opts Options) *Plugin {
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.8" }
+func (p *Plugin) Version() string                { return "0.3.0" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -166,6 +168,13 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 		return err
 	}
 	p.opts = cfg
+	if name := p.opts.TokenEnv; name != "" {
+		token := os.Getenv(name)
+		if token == "" {
+			return fmt.Errorf("prometheus: the environment variable %s is empty", name)
+		}
+		p.opts.Token = token
+	}
 	if p.opts.Path == "" {
 		p.opts.Path = "/metrics"
 	}

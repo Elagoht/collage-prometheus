@@ -37,7 +37,7 @@ func site(t *testing.T, m *prometheus.Plugin, pluginConfig string) *collage.App 
 		t.Fatal(err)
 	}
 	pages := []*collage.Page{
-		collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Static().WithDependency("home").Build(),
+		collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Static().WithDependencyTags("home").Build(),
 		collage.NewPage("post").WithContent(collage.NewFragment("post", "p.html").Build()).WithPath("en", "/blog/{slug}").Static().Build(),
 		collage.NewPage("docs").WithContent(collage.NewFragment("docs", "p.html").Build()).WithPath("en", "/docs/{rest...}").Static().Build(),
 		collage.NewPage("broken").WithContent(collage.NewFragment("broken", "fail.html").WithData(collage.Load(

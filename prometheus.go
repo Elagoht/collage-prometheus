@@ -18,7 +18,7 @@
 // raw path as a label is a new time series for every /blog/whatever a crawler
 // invents, and a Prometheus server holding a million series for one histogram is
 // one that has stopped answering. So the HTTP metric labels a request with what
-// collage.RouteOf says it resolved to — "page:post", "document:feed",
+// collage.RouteInfo says it resolved to — "page:post", "document:feed",
 // "mount:/static/" — and "other" when it resolved to nothing.
 package prometheus
 
@@ -146,7 +146,7 @@ func NewMetrics(opts Options) *Plugin {
 }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.7" }
+func (p *Plugin) Version() string                { return "0.2.8" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -250,11 +250,11 @@ func (p *Plugin) HTTPResponse(ctx context.Context, status int, _ string, d time.
 // "handler:/api/". Both come from what the application registered, so the set is
 // as bounded as its routes are.
 func route(ctx context.Context) string {
-	kind, name := collage.RouteOf(ctx)
-	if kind == "" {
+	r := collage.RouteInfo(ctx)
+	if r.Kind == "" {
 		return OtherRoute
 	}
-	return kind + ":" + name
+	return r.Kind + ":" + r.Name
 }
 
 // Invalidation counts an invalidation and the keys it reached. The tags are not a

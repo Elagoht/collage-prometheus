@@ -13,7 +13,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.52.0 or later.
+Requires collage v0.60.0 or later.
 
 ## Both lines
 
@@ -138,6 +138,10 @@ taken — stop the application from starting.
   the handler's own routing, which collage does not see.
 
 ## Changes
+
+### v0.2.8
+
+- Requires collage v0.60.0 (sealed public API). No behaviour change.
 
 ### v0.2.7
 

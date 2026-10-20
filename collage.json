@@ -3,7 +3,7 @@
   "name": "elagoht/prometheus",
   "description": "A collage plugin that exports the framework's metrics to Prometheus, and serves them at /metrics.",
   "repository": "https://github.com/Elagoht/collage-prometheus",
-  "setup": "Hand the same value to `Config.Observability.Metrics` as well as `Config.Plugins`, or `/metrics` serves only the runtime's metrics: `m := prometheus.New(prometheus.Options{})`, then `Observability: collage.ObservabilityConfig{Metrics: m}` and `Plugins: []collage.Plugin{m}`. To require a bearer token, put it in an environment variable and set `\"tokenEnv\"` to its name.",
+  "setup": "In `plugins.go`, declare `var metrics = prometheus.New(prometheus.Options{})` and list `metrics` in `plugins()` in place of `prometheus.New(...)`: a second `New` stops the application.\nIn `main.go`, add `Observability: collage.ObservabilityConfig{Metrics: metrics},` to `collage.Config`, or `/metrics` has none of collage's metrics.\n`/metrics` is public: for a bearer token, set `\"tokenEnv\": \"METRICS_TOKEN\"` in `plugins-config.json` and `METRICS_TOKEN` where production runs.",
   "config": {
     "type": "object",
     "description": "A collage plugin that exports the framework's metrics to Prometheus, and serves them at /metrics.",
